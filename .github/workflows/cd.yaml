@@ -1,0 +1,156 @@
+---
+name: Continuous Delivery
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  continuous-integration:
+    name: Continuous Integration
+    uses: ./.github/workflows/ci.yaml
+
+  is-release:
+    name: Check Changes. Is Release?
+    runs-on: ubuntu-latest
+    outputs:
+      app: ${{ steps.changes.outputs.app }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5.0.0
+
+      - id: changes
+        name: Check Changes to Release
+        uses: dorny/paths-filter@v2.11.0
+        with:
+          filters: |
+            app:
+              - 'bin/**'
+              - 'docker/**'
+              - 'scripts/build.sh'
+
+  bump-version:
+    name: Bump Version
+    needs: [continuous-integration, is-release]
+    if: ${{ needs.is-release.outputs.app == 'true' }}
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version-check.outputs.current-version }}
+      version-changed: ${{ steps.version-check.outputs.changed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5.0.0
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GH_TOKEN }}
+
+      - name: Grep Version
+        id: prev-version
+        run: |
+          VERSION=$(grep '^version = ' .cz.toml | sed 's/version = "\(.*\)"/\1/')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Bump Version
+        id: cz
+        uses: commitizen-tools/commitizen-action@master
+        with:
+          push: true
+          commit: true
+          github_token: ${{ secrets.GH_TOKEN }}
+
+      - name: Check Version. Is Release?
+        id: version-check
+        run: |
+          VERSION=$(grep '^version = ' .cz.toml | sed 's/version = "\(.*\)"/\1/')
+          echo "current-version=$VERSION" >> $GITHUB_OUTPUT
+
+          if [ "${{ steps.prev-version.outputs.version }}" != "$VERSION" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+          fi
+
+  build-and-push:
+    name: Build & Push Docker Image (${{ matrix.variant }})
+    needs: [bump-version]
+    if: ${{ needs.bump-version.outputs.version-changed == 'true' }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        variant: [default, node, go, flutter]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5.0.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Allow Build Script to be Executed
+        run: chmod +x scripts/build.sh
+
+      - name: Build & Push Docker Image
+        run: |
+          ./scripts/build.sh \
+            --registry "${{ env.REGISTRY }}/${{ github.repository_owner }}" \
+            --image-name "sonar-plugin" \
+            --tag-prefix "${{ needs.bump-version.outputs.version }}" \
+            --variant "${{ matrix.variant }}" \
+            --push
+
+  github-release:
+    name: Create GitHub Release
+    needs: [build-and-push, bump-version]
+    if: ${{ needs.bump-version.outputs.version-changed == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5.0.0
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.bump-version.outputs.version }}
+          name: Release ${{ needs.bump-version.outputs.version }}
+          generate_release_notes: true
+          make_latest: true
+          body: |
+            ## 🐳 Docker Images
+
+            This release includes the following Docker images:
+
+            ### Default Image
+            ```bash
+            docker pull ${{ env.REGISTRY }}/${{ github.repository_owner }}/sonar-plugin:${{ needs.bump-version.outputs.version }}
+            docker pull ${{ env.REGISTRY }}/${{ github.repository_owner }}/sonar-plugin:latest
+            ```
+
+            ### Node.js Variant
+            ```bash
+            docker pull ${{ env.REGISTRY }}/${{ github.repository_owner }}/sonar-plugin:node
+            docker pull ${{ env.REGISTRY }}/${{ github.repository_owner }}/sonar-plugin:node-${{ needs.bump-version.outputs.version }}
+            ```
+
+            ### Go Variant
+            ```bash
+            docker pull ${{ env.REGISTRY }}/${{ github.repository_owner }}/sonar-plugin:go
+            docker pull ${{ env.REGISTRY }}/${{ github.repository_owner }}/sonar-plugin:go-${{ needs.bump-version.outputs.version }}
+            ```
+
+            ### Flutter Variant
+            ```bash
+            docker pull ${{ env.REGISTRY }}/${{ github.repository_owner }}/sonar-plugin:flutter
+            docker pull ${{ env.REGISTRY }}/${{ github.repository_owner }}/sonar-plugin:flutter-${{ needs.bump-version.outputs.version }}
+            ```
+
+            See the [README](./README.md) for usage instructions and documentation.
