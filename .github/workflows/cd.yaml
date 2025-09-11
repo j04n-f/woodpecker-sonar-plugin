@@ -1,0 +1,144 @@
+---
+name: Continuous Delivery
+
+on:
+  push:
+    branches:
+    - main
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  continuous-integration:
+    name: Continuous Integration
+    uses: ./.github/workflows/ci.yaml
+
+  is-release:
+    name: Check Changes. Is Release?
+    runs-on: ubuntu-latest
+    outputs:
+      app: ${{ steps.changes.outputs.app }}
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3.5.2
+      with:
+        fetch-depth: 0
+
+    - id: changes
+      name: Check Changes to Release
+      uses: dorny/paths-filter@v2.11.0
+      with:
+        filters: |
+          app:
+            - 'bin/**'
+            - 'docker/**'
+            - 'scripts/build.sh'
+
+  bump-version:
+    name: Bump Version
+    needs: [continuous-integration, is-release]
+    if: ${{ needs.is-release.outputs.app == 'true' }}
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.cz.outputs.version }}
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3.5.2
+      with:
+        fetch-depth: 0
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - id: cz
+      name: Commitizen | Bump Version
+      uses: commitizen-tools/commitizen-action@master
+      with:
+        push: true
+        commit: true
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+
+  build-and-push:
+    name: Build & Push Docker Image (${{ matrix.variant }})
+    needs: [bump-version]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        variant: [default, node, go, flutter]
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        ref: main
+        fetch-depth: 0
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Allow Build Script to be Executed
+      run: chmod +x scripts/build.sh
+
+    - name: Build & Push Docker Image
+      run: |
+        ./scripts/build.sh \
+          --registry "${{ env.REGISTRY }}/${{ github.repository_owner }}" \
+          --image-name "sonar-plugin" \
+          --tag-prefix "${{ needs.bump-version.outputs.version }}" \
+          --additional-tags "latest" \
+          --variant "${{ matrix.variant }}" \
+          --push
+
+  github-release:
+    name: Create GitHub Release
+    needs: [bump-version, build-and-push]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        ref: main
+        fetch-depth: 0
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ needs.bump-version.outputs.version }}
+        name: Release ${{ needs.bump-version.outputs.version }}
+        generate_release_notes: true
+        make_latest: true
+        body: |
+          ## 🐳 Docker Images
+
+          This release includes the following Docker images:
+
+          ### Default Image
+          ```bash
+          docker pull ${{ env.REGISTRY }}/${{ github.repository_owner }}/sonar-plugin:${{ needs.bump-version.outputs.version }}
+          docker pull ${{ env.REGISTRY }}/${{ github.repository_owner }}/sonar-plugin:latest
+          ```
+
+          ### Node.js Variant
+          ```bash
+          docker pull ${{ env.REGISTRY }}/${{ github.repository_owner }}/sonar-plugin:node-${{ needs.bump-version.outputs.version }}
+          docker pull ${{ env.REGISTRY }}/${{ github.repository_owner }}/sonar-plugin:node
+          ```
+
+          ### Go Variant
+          ```bash
+          docker pull ${{ env.REGISTRY }}/${{ github.repository_owner }}/sonar-plugin:go-${{ needs.bump-version.outputs.version }}
+          docker pull ${{ env.REGISTRY }}/${{ github.repository_owner }}/sonar-plugin:go
+          ```
+
+          ### Flutter Variant
+          ```bash
+          docker pull ${{ env.REGISTRY }}/${{ github.repository_owner }}/sonar-plugin:flutter-${{ needs.bump-version.outputs.version }}
+          docker pull ${{ env.REGISTRY }}/${{ github.repository_owner }}/sonar-plugin:flutter
+          ```
+
+          See the [README](./README.md) for usage instructions and documentation.

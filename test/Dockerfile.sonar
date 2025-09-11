@@ -1,0 +1,23 @@
+FROM ubuntu AS download
+
+RUN apt-get update && apt-get install -y unzip wget
+
+RUN wget "https://github.com/mc1arke/sonarqube-community-branch-plugin/releases/download/25.5.0/sonarqube-webapp.zip" && unzip sonarqube-webapp.zip -d sonarqube-webapp
+
+FROM sonarqube:25.5.0.107428-community
+
+# Flutter Community Plugin
+RUN wget https://github.com/insideapp-oss/sonar-flutter/releases/download/0.5.2/sonar-flutter-plugin-0.5.2.jar --directory-prefix="$(pwd)/extensions/plugins"
+
+# Branch & PR Community Plugin
+# Compatibility Matrix: https://github.com/mc1arke/sonarqube-community-branch-plugin/blob/master/README.md#compatibility
+ENV PLUGIN_VERSION=25.5.0
+
+RUN wget "https://github.com/mc1arke/sonarqube-community-branch-plugin/releases/download/${PLUGIN_VERSION}/sonarqube-community-branch-plugin-${PLUGIN_VERSION}.jar" --directory-prefix="$(pwd)/extensions/plugins"
+
+RUN chmod -R 770 /opt/sonarqube/web && rm -rf /opt/sonarqube/web/*
+COPY --from=download --chown=sonarqube:root /sonarqube-webapp /opt/sonarqube/web
+RUN chmod -R 550 /opt/sonarqube/web
+
+ENV SONAR_WEB_JAVAADDITIONALOPTS="-javaagent:/opt/sonarqube/extensions/plugins/sonarqube-community-branch-plugin-${PLUGIN_VERSION}.jar=web"
+ENV SONAR_CE_JAVAADDITIONALOPTS="-javaagent:/opt/sonarqube/extensions/plugins/sonarqube-community-branch-plugin-${PLUGIN_VERSION}.jar=ce"

@@ -1,0 +1,33 @@
+# Test files and directories
+test-workspace/
+sonar_token.txt
+
+# Docker volumes
+sonarqube_data/
+sonarqube_logs/
+sonarqube_extensions/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Log files
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+
+# SonarQube working directories
+.sonar/
+.scannerwork/
+
+# Flutter
+.dart_tool
