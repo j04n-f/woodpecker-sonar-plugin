@@ -6,7 +6,6 @@ set -e
 REGISTRY=""
 IMAGE_NAME="sonar-plugin"
 TAG_PREFIX=""
-ADDITIONAL_TAGS=""
 PUSH=false
 
 # Parse command line arguments
@@ -24,10 +23,6 @@ while [[ $# -gt 0 ]]; do
       TAG_PREFIX="$2"
       shift 2
       ;;
-    --additional-tags)
-      ADDITIONAL_TAGS="$2"
-      shift 2
-      ;;
     --push)
       PUSH=true
       shift
@@ -42,7 +37,6 @@ while [[ $# -gt 0 ]]; do
       echo "  --registry REGISTRY      Docker registry (e.g., ghcr.io/user/repo)"
       echo "  --image-name NAME        Base image name (default: sonar-plugin)"
       echo "  --tag-prefix PREFIX      Tag prefix for versioning"
-      echo "  --additional-tags TAGS   Comma-separated additional tags (e.g., 'latest,stable')"
       echo "  --variant VARIANT        Build specific variant only (default, node, go, flutter)"
       echo "  --push                   Push images to registry"
       echo "  --help                   Show this help message"
@@ -60,31 +54,21 @@ build_image() {
   local dockerfile=$1
   local variant=$2
   local local_tag=$3
-  local tag=$4
   
   echo
   echo "🏗️  Building $local_tag..."
   echo
   
-  # Build the base command with all tags
+  # Build the base command with local tag
   local build_cmd="docker build -f \"$dockerfile\" -t \"$local_tag\""
   
+  # Add registry tags if registry is specified
   if [[ -n "$REGISTRY" ]]; then
-    build_cmd="$build_cmd -t \"$tag\""
-    
-    # Add additional tags if specified
-    if [[ -n "$ADDITIONAL_TAGS" ]]; then
-      IFS=',' read -ra TAGS <<< "$ADDITIONAL_TAGS"
-      for tag_name in "${TAGS[@]}"; do
-        local additional_tag
-        if [[ "$variant" == "default" ]]; then
-          additional_tag="$REGISTRY/$IMAGE_NAME:$tag_name"
-        else
-          additional_tag="$REGISTRY/$IMAGE_NAME:$variant-$tag_name"
-        fi
-        build_cmd="$build_cmd -t \"$additional_tag\""
-      done
-    fi
+    local registry_tags
+    readarray -t registry_tags < <(get_tag_name "$variant")
+    for tag in "${registry_tags[@]}"; do
+      build_cmd="$build_cmd -t \"$tag\""
+    done
   fi
   
   build_cmd="$build_cmd ."
@@ -93,56 +77,46 @@ build_image() {
   eval "$build_cmd"
 }
 
-# Function to push an image and its additional tags
+# Function to push an image and its tags
 push_image() {
   local variant=$1
-  local tag=$2
   
   if [[ -n "$REGISTRY" ]]; then
-    echo
-    echo "📤 Pushing $tag..."
-    echo
-    docker push "$tag"
-    
-    # Push additional tags
-    if [[ -n "$ADDITIONAL_TAGS" ]]; then
-      IFS=',' read -ra TAGS <<< "$ADDITIONAL_TAGS"
-      for tag_name in "${TAGS[@]}"; do
-        local additional_tag
-        if [[ "$variant" == "default" ]]; then
-          additional_tag="$REGISTRY/$IMAGE_NAME:$tag_name"
-        else
-          additional_tag="$REGISTRY/$IMAGE_NAME:$variant-$tag_name"
-        fi
-        echo
-        echo "📤 Pushing $additional_tag..."
-        echo
-        docker push "$additional_tag"
-      done
-    fi
+    local registry_tags
+    readarray -t registry_tags < <(get_tag_name "$variant")
+    for tag in "${registry_tags[@]}"; do
+      echo
+      echo "📤 Pushing $tag..."
+      echo
+      docker push "$tag"
+    done
   fi
   
   echo
 }
 
-# Function to get registry tag
+# Function to get registry tags (returns array of tags)
 get_tag_name() {
   local variant=$1
+  local tags=()
+  
   if [[ -n "$REGISTRY" ]]; then
     if [[ "$variant" == "default" ]]; then
+      # Default variant: sonar-plugin:latest and sonar-plugin:{version}
+      tags+=("$REGISTRY/$IMAGE_NAME:latest")
       if [[ -n "$TAG_PREFIX" ]]; then
-        echo "$REGISTRY/$IMAGE_NAME:$TAG_PREFIX"
-      else
-        echo "$REGISTRY/$IMAGE_NAME:latest"
+        tags+=("$REGISTRY/$IMAGE_NAME:$TAG_PREFIX")
       fi
     else
+      # Variant images: sonar-plugin:{variant} and sonar-plugin:{variant}-{version}
+      tags+=("$REGISTRY/$IMAGE_NAME:$variant")
       if [[ -n "$TAG_PREFIX" ]]; then
-        echo "$REGISTRY/$IMAGE_NAME:$variant-$TAG_PREFIX"
-      else
-        echo "$REGISTRY/$IMAGE_NAME:$variant"
+        tags+=("$REGISTRY/$IMAGE_NAME:$variant-$TAG_PREFIX")
       fi
     fi
   fi
+  
+  printf '%s\n' "${tags[@]}"
 }
 
 echo
@@ -152,46 +126,39 @@ echo "🏗️  Building sonar-plugin Docker images..."
 if [[ -n "$VARIANT" ]]; then
   case $VARIANT in
     default)
-      tag=$(get_tag_name "default")
-      build_image "docker/Dockerfile" "default" "$IMAGE_NAME" "$tag"
+      build_image "docker/Dockerfile" "default" "$IMAGE_NAME"
       if [[ "$PUSH" == "true" ]]; then
-        push_image "default" "$tag"
+        push_image "default"
       fi
       ;;
     node)
       # Build base image first if needed
       if ! docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
-        tag_base=$(get_tag_name "default")
-        build_image "docker/Dockerfile" "default" "$IMAGE_NAME" "$tag_base"
+        build_image "docker/Dockerfile" "default" "$IMAGE_NAME"
       fi
-      tag=$(get_tag_name "node")
-      build_image "docker/Dockerfile.node" "node" "$IMAGE_NAME:node" "$tag"
+      build_image "docker/Dockerfile.node" "node" "$IMAGE_NAME:node"
       if [[ "$PUSH" == "true" ]]; then
-        push_image "node" "$tag"
+        push_image "node"
       fi
       ;;
     go)
       # Build base image first if needed
       if ! docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
-        tag_base=$(get_tag_name "default")
-        build_image "docker/Dockerfile" "default" "$IMAGE_NAME" "$tag_base"
+        build_image "docker/Dockerfile" "default" "$IMAGE_NAME"
       fi
-      tag=$(get_tag_name "go")
-      build_image "docker/Dockerfile.go" "go" "$IMAGE_NAME:go" "$tag"
+      build_image "docker/Dockerfile.go" "go" "$IMAGE_NAME:go"
       if [[ "$PUSH" == "true" ]]; then
-        push_image "go" "$tag"
+        push_image "go"
       fi
       ;;
     flutter)
       # Build base image first if needed
       if ! docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
-        tag_base=$(get_tag_name "default")
-        build_image "docker/Dockerfile" "default" "$IMAGE_NAME" "$tag_base"
+        build_image "docker/Dockerfile" "default" "$IMAGE_NAME"
       fi
-      tag=$(get_tag_name "flutter")
-      build_image "docker/Dockerfile.flutter" "flutter" "$IMAGE_NAME:flutter" "$tag"
+      build_image "docker/Dockerfile.flutter" "flutter" "$IMAGE_NAME:flutter"
       if [[ "$PUSH" == "true" ]]; then
-        push_image "flutter" "$tag"
+        push_image "flutter"
       fi
       ;;
     *)
@@ -207,27 +174,23 @@ else
   # Build all variants
   
   # Build base image first
-  tag_default=$(get_tag_name "default")
-  build_image "docker/Dockerfile" "default" "$IMAGE_NAME" "$tag_default"
+  build_image "docker/Dockerfile" "default" "$IMAGE_NAME"
   
   # Build Node.js variant
-  tag_node=$(get_tag_name "node")
-  build_image "docker/Dockerfile.node" "node" "$IMAGE_NAME:node" "$tag_node"
+  build_image "docker/Dockerfile.node" "node" "$IMAGE_NAME:node"
   
   # Build Go variant
-  tag_go=$(get_tag_name "go")
-  build_image "docker/Dockerfile.go" "go" "$IMAGE_NAME:go" "$tag_go"
+  build_image "docker/Dockerfile.go" "go" "$IMAGE_NAME:go"
   
   # Build Flutter variant
-  tag_flutter=$(get_tag_name "flutter")
-  build_image "docker/Dockerfile.flutter" "flutter" "$IMAGE_NAME:flutter" "$tag_flutter"
+  build_image "docker/Dockerfile.flutter" "flutter" "$IMAGE_NAME:flutter"
   
   # Push all images if requested
   if [[ "$PUSH" == "true" ]]; then
-    push_image "default" "$tag_default"
-    push_image "node" "$tag_node"
-    push_image "go" "$tag_go"
-    push_image "flutter" "$tag_flutter"
+    push_image "default"
+    push_image "node"
+    push_image "go"
+    push_image "flutter"
   fi
   
   echo
@@ -244,17 +207,11 @@ else
     echo
     echo "Registry images:"
     for variant_name in "default" "node" "go" "flutter"; do
-      echo "  - $(get_tag_name "$variant_name")"
-      if [[ -n "$ADDITIONAL_TAGS" ]]; then
-        IFS=',' read -ra TAGS <<< "$ADDITIONAL_TAGS"
-        for tag_name in "${TAGS[@]}"; do
-          if [[ "$variant_name" == "default" ]]; then
-            echo "  - $REGISTRY/$IMAGE_NAME:$tag_name"
-          else
-            echo "  - $REGISTRY/$IMAGE_NAME:$variant_name-$tag_name"
-          fi
-        done
-      fi
+      local registry_tags
+      readarray -t registry_tags < <(get_tag_name "$variant_name")
+      for tag in "${registry_tags[@]}"; do
+        echo "  - $tag"
+      done
     done
   fi
 fi

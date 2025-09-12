@@ -90,7 +90,6 @@ jobs:
           --registry "${{ env.REGISTRY }}/${{ github.repository_owner }}" \
           --image-name "sonar-plugin" \
           --tag-prefix "${{ needs.bump-version.outputs.version }}" \
-          --additional-tags "latest" \
           --variant "${{ matrix.variant }}" \
           --push
 
@@ -125,20 +124,20 @@ jobs:
 
           ### Node.js Variant
           ```bash
-          docker pull ${{ env.REGISTRY }}/${{ github.repository_owner }}/sonar-plugin:node-${{ needs.bump-version.outputs.version }}
           docker pull ${{ env.REGISTRY }}/${{ github.repository_owner }}/sonar-plugin:node
+          docker pull ${{ env.REGISTRY }}/${{ github.repository_owner }}/sonar-plugin:node-${{ needs.bump-version.outputs.version }}
           ```
 
           ### Go Variant
           ```bash
-          docker pull ${{ env.REGISTRY }}/${{ github.repository_owner }}/sonar-plugin:go-${{ needs.bump-version.outputs.version }}
           docker pull ${{ env.REGISTRY }}/${{ github.repository_owner }}/sonar-plugin:go
+          docker pull ${{ env.REGISTRY }}/${{ github.repository_owner }}/sonar-plugin:go-${{ needs.bump-version.outputs.version }}
           ```
 
           ### Flutter Variant
           ```bash
-          docker pull ${{ env.REGISTRY }}/${{ github.repository_owner }}/sonar-plugin:flutter-${{ needs.bump-version.outputs.version }}
           docker pull ${{ env.REGISTRY }}/${{ github.repository_owner }}/sonar-plugin:flutter
+          docker pull ${{ env.REGISTRY }}/${{ github.repository_owner }}/sonar-plugin:flutter-${{ needs.bump-version.outputs.version }}
           ```
 
           See the [README](./README.md) for usage instructions and documentation.
