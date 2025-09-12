@@ -6,4 +6,4 @@ version_provider = "commitizen"
 update_changelog_on_bump = true
 major_version_zero = false
 changelog_file = "CHANGELOG.md"
-version = "0.0.0"
+version = "0.1.0"
