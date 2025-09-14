@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     unzip \
     openjdk-17-jre \
     bash \
+    git \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
