@@ -31,3 +31,6 @@ Thumbs.db
 
 # Flutter
 .dart_tool
+
+# Environment
+.env

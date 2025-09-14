@@ -1,0 +1,14 @@
+when:
+  - event: push
+    branch: main
+  - event: pull_request
+
+steps:
+  - name: code-analysis
+    image: sonar-plugin:node
+    settings:
+      sonar_token:
+        from_secret: sonar_token
+      sonar_url: http://192.168.100.40:9000
+      sonar_project_key: test-sonar-plugin
+      sonar_project_name: "Test Sonar Plugin"
