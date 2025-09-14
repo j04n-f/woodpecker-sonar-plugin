@@ -1,6 +1,5 @@
 FROM sonar-plugin
 
-# Install Node.js and sonar-scanner dependencies
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y nodejs \
     && apt-get clean \
