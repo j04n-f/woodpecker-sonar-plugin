@@ -1,6 +1,69 @@
-version: '3.8'
-
 services:
+  # Gitea - Git forge
+  gitea:
+    image: gitea/gitea:latest-rootless
+    container_name: gitea
+    ports:
+      - "3000:3000"
+      - "2222:2222"
+    environment:
+      - GITEA__security__INSTALL_LOCK=true
+      - GITEA__service__DISABLE_REGISTRATION=false
+      - GITEA__service__REQUIRE_SIGNIN_VIEW=false
+      - GITEA__webhook__ALLOWED_HOST_LIST=external,loopback,192.168.100.10
+      - GITEA__webhook__SKIP_TLS_VERIFY=true
+      - ROOT_URL=http://192.168.100.20:3000
+    volumes:
+      - gitea_data:/var/lib/gitea
+      - gitea_config:/etc/gitea
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    networks:
+      woodpecker-net:
+        ipv4_address: 192.168.100.20
+
+  # Woodpecker Server
+  woodpecker-server:
+    image: woodpeckerci/woodpecker-server:latest
+    container_name: woodpecker-server
+    ports:
+      - "8000:8000"
+    environment:
+      - WOODPECKER_OPEN=true
+      - WOODPECKER_HOST=http://192.168.100.10:8000
+      - WOODPECKER_GITEA=true
+      - WOODPECKER_GITEA_URL=http://192.168.100.20:3000
+      - WOODPECKER_ADMIN=woodpecker
+      - WOODPECKER_DATABASE_DRIVER=sqlite3
+      - WOODPECKER_DATABASE_DATASOURCE=/var/lib/woodpecker/woodpecker.sqlite
+      - WOODPECKER_LOG_LEVEL=debug
+      - WOODPECKER_GITEA_SKIP_VERIFY=true
+    env_file: ".env"
+    volumes:
+      - woodpecker_data:/var/lib/woodpecker
+    networks:
+      woodpecker-net:
+        ipv4_address: 192.168.100.10
+
+  # Woodpecker Agent
+  woodpecker-agent:
+    image: woodpeckerci/woodpecker-agent:latest
+    container_name: woodpecker-agent
+    environment:
+      - WOODPECKER_HOST=http://192.168.100.10:8000
+      - WOODPECKER_SERVER=woodpecker-server:9000
+      - WOODPECKER_LOG_LEVEL=debug
+      - WOODPECKER_BACKEND=docker
+      - WOODPECKER_BACKEND_DOCKER_NETWORK=woodpecker-sonar-plugin_woodpecker-net
+      - WOODPECKER_GITEA_SKIP_VERIFY=true
+    env_file: ".env"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      woodpecker-net:
+        ipv4_address: 192.168.100.30
+
+  # SonarQube
   sonarqube:
     build:
       context: .
@@ -14,14 +77,24 @@ services:
       - sonarqube_data:/opt/sonarqube/data
       - sonarqube_logs:/opt/sonarqube/logs
       - sonarqube_extensions:/opt/sonarqube/extensions
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:9000/api/system/status | grep -q UP || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 10
-      start_period: 60s
+    networks:
+      woodpecker-net:
+        ipv4_address: 192.168.100.40
+
+networks:
+  woodpecker-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 192.168.100.0/24
+          gateway: 192.168.100.1
 
 volumes:
+  gitea_data:
+    driver: local
+  gitea_config:
+    driver: local
+  woodpecker_data:
   sonarqube_data:
   sonarqube_logs:
   sonarqube_extensions:
