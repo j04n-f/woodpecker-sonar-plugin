@@ -8,3 +8,4 @@ major_version_zero = false
 changelog_file = "CHANGELOG.md"
 version = "0.1.0"
 changelog_incremental = true
+bump_message = "[skip ci] bump: version $current_version → $new_version"
